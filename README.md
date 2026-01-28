@@ -121,7 +121,11 @@ This version has more advanced features than version 1 and is a truly profitable
 ✅ **Finding the Best Traders**  
 
 <img width="680" height="313" alt="image (19)" src="https://github.com/user-attachments/assets/d868f9f2-a1dd-4bfe-a76e-d8cbdfbd8497" />
-https://github.com/user-attachments/assets/a882e545-18ce-4d47-a937-19eb7bd89784
+
+
+https://github.com/user-attachments/assets/5cf88946-4a1a-4168-a41d-920ade3370d4
+
+
 There are several versions, including **TypeScript**, **Python**, and **Rust**.
 ## Trading tool
 
