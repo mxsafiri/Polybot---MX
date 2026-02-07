@@ -1,9 +1,62 @@
 import { ClobClient, OrderType, Side } from '@polymarket/clob-client';
+import { ethers } from 'ethers';
 import { ENV } from '../config/env';
 import { UserActivityInterface, UserPositionInterface } from '../interfaces/User';
 import { getUserActivityModel } from '../models/userHistory';
 import Logger from './logger';
 import { calculateOrderSize, getTradeMultiplier } from '../config/copyStrategy';
+
+// Auto-redeem constants for resolved markets
+const CTF_CONTRACT_ADDRESS = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
+const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+const CTF_ABI = [
+    'function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] calldata indexSets) external',
+];
+
+/**
+ * Fallback: auto-redeem a position when the orderbook no longer exists (market resolved)
+ */
+const tryAutoRedeem = async (conditionId: string): Promise<boolean> => {
+    try {
+        const provider = new ethers.providers.JsonRpcProvider(ENV.RPC_URL);
+        const wallet = new ethers.Wallet(ENV.PRIVATE_KEY, provider);
+        const ctfContract = new ethers.Contract(CTF_CONTRACT_ADDRESS, CTF_ABI, wallet);
+
+        const conditionIdBytes32 = ethers.utils.hexZeroPad(
+            ethers.BigNumber.from(conditionId).toHexString(),
+            32
+        );
+        const parentCollectionId = ethers.constants.HashZero;
+        const indexSets = [1, 2];
+
+        const feeData = await provider.getFeeData();
+        const gasPrice = feeData.gasPrice || feeData.maxFeePerGas;
+        if (!gasPrice) return false;
+
+        const adjustedGasPrice = gasPrice.mul(120).div(100);
+
+        Logger.info('🔄 Market resolved - attempting auto-redeem...');
+        const tx = await ctfContract.redeemPositions(
+            USDC_ADDRESS,
+            parentCollectionId,
+            conditionIdBytes32,
+            indexSets,
+            { gasLimit: 500000, gasPrice: adjustedGasPrice }
+        );
+
+        Logger.info(`⏳ Redeem TX submitted: ${tx.hash}`);
+        const receipt = await tx.wait();
+
+        if (receipt.status === 1) {
+            Logger.success(`✅ Auto-redeem successful! Gas used: ${receipt.gasUsed.toString()}`);
+            return true;
+        }
+        return false;
+    } catch (error: any) {
+        Logger.warning(`Auto-redeem failed: ${error.message || error}`);
+        return false;
+    }
+};
 
 const RETRY_LIMIT = ENV.RETRY_LIMIT;
 const COPY_STRATEGY_CONFIG = ENV.COPY_STRATEGY_CONFIG;
@@ -397,10 +450,25 @@ const postOrder = async (
         let totalSoldTokens = 0; // Track total tokens sold
 
         while (remaining > 0 && retry < RETRY_LIMIT) {
-            const orderBook = await clobClient.getOrderBook(trade.asset);
-            if (!orderBook.bids || orderBook.bids.length === 0) {
+            let orderBook;
+            try {
+                orderBook = await clobClient.getOrderBook(trade.asset);
+            } catch (err: any) {
+                Logger.warning('No orderbook exists - market may have resolved');
+                const redeemed = await tryAutoRedeem(trade.conditionId);
+                if (redeemed) {
+                    Logger.success('Position auto-redeemed successfully instead of selling');
+                }
                 await UserActivity.updateOne({ _id: trade._id }, { bot: true });
-                Logger.warning('No bids available in order book');
+                break;
+            }
+            if (!orderBook.bids || orderBook.bids.length === 0) {
+                Logger.warning('No bids available in order book - trying auto-redeem...');
+                const redeemed = await tryAutoRedeem(trade.conditionId);
+                if (redeemed) {
+                    Logger.success('Position auto-redeemed successfully instead of selling');
+                }
+                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
                 break;
             }
 
