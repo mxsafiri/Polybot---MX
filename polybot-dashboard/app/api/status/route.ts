@@ -23,7 +23,17 @@ export async function GET() {
   const now = Date.now();
   const botStatus = await db
     .collection("bot_status")
-    .findOne<{ lastSeenAt?: number; previewMode?: boolean }>(
+    .findOne<{
+      lastSeenAt?: number;
+      previewMode?: boolean;
+      wallet?: {
+        availableCashUsdc?: number;
+        positionsValueUsd?: number;
+        portfolioValueUsd?: number;
+        pnlUsd?: number;
+        updatedAt?: number;
+      };
+    }>(
       { _id: "singleton" } as unknown as Record<string, unknown>
     );
 
@@ -50,6 +60,13 @@ export async function GET() {
       isRunning: Boolean(botStatus?.lastSeenAt && now - botStatus.lastSeenAt < 30_000),
       lastSeenAt: botStatus?.lastSeenAt ?? null,
       previewMode: botStatus?.previewMode ?? null,
+    },
+    wallet: {
+      availableCashUsdc: botStatus?.wallet?.availableCashUsdc ?? null,
+      positionsValueUsd: botStatus?.wallet?.positionsValueUsd ?? null,
+      portfolioValueUsd: botStatus?.wallet?.portfolioValueUsd ?? null,
+      pnlUsd: botStatus?.wallet?.pnlUsd ?? null,
+      updatedAt: botStatus?.wallet?.updatedAt ?? null,
     },
     tracking: {
       tradersTracked: userAddresses.length,

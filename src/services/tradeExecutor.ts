@@ -13,6 +13,7 @@ const PROXY_WALLET = ENV.PROXY_WALLET;
 const TRADE_AGGREGATION_ENABLED = ENV.TRADE_AGGREGATION_ENABLED;
 const TRADE_AGGREGATION_WINDOW_SECONDS = ENV.TRADE_AGGREGATION_WINDOW_SECONDS;
 const TRADE_AGGREGATION_MIN_TOTAL_USD = 1.0; // Polymarket minimum
+const COPY_ONLY_NEW_TRADES = ENV.COPY_ONLY_NEW_TRADES;
 
 // Create activity models for each user
 const userActivityModels = USER_ADDRESSES.map((address) => ({
@@ -62,6 +63,34 @@ const readTempTrades = async (): Promise<TradeWithUser[]> => {
     }
 
     return allTrades;
+};
+
+const markBacklogAsProcessed = async (startTimestampSeconds: number): Promise<number> => {
+    let totalMarked = 0;
+
+    for (const { address, model } of userActivityModels) {
+        const res = await model.updateMany(
+            {
+                $and: [
+                    { type: 'TRADE' },
+                    { bot: false },
+                    { botExcutedTime: 0 },
+                    { timestamp: { $lt: startTimestampSeconds } },
+                ],
+            },
+            { $set: { bot: true } }
+        );
+
+        totalMarked += res.modifiedCount ?? 0;
+        Logger.info(
+            `Backlog cleanup: marked ${res.modifiedCount ?? 0} trade(s) as processed for ${address.slice(
+                0,
+                6
+            )}...${address.slice(-4)}`
+        );
+    }
+
+    return totalMarked;
 };
 
 /**
@@ -276,9 +305,19 @@ const tradeExecutor = async (clobClient: ClobClient) => {
         );
     }
 
+    const startTimestampSeconds = Math.floor(Date.now() / 1000);
+    if (COPY_ONLY_NEW_TRADES) {
+        Logger.info('Copy mode: ONLY new trades (backlog will be ignored)');
+        const totalMarked = await markBacklogAsProcessed(startTimestampSeconds);
+        Logger.success(`Backlog cleanup complete: ${totalMarked} trade(s) ignored`);
+    }
+
     let lastCheck = Date.now();
     while (isRunning) {
-        const trades = await readTempTrades();
+        const allTrades = await readTempTrades();
+        const trades = COPY_ONLY_NEW_TRADES
+            ? allTrades.filter((trade) => trade.timestamp >= startTimestampSeconds)
+            : allTrades;
 
         if (TRADE_AGGREGATION_ENABLED) {
             // Process with aggregation logic

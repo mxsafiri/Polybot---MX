@@ -13,6 +13,13 @@ type StatusResponse = {
     lastSeenAt: number | null;
     previewMode: boolean | null;
   };
+  wallet: {
+    availableCashUsdc: number | null;
+    positionsValueUsd: number | null;
+    portfolioValueUsd: number | null;
+    pnlUsd: number | null;
+    updatedAt: number | null;
+  };
   tracking: {
     tradersTracked: number;
     tradeCount24h: number;
@@ -180,7 +187,17 @@ export default function DashboardClient() {
           <div className="mt-6 space-y-6">
             <BotStatus
               isRunning={isRunning}
+              balance={
+                status?.ok && typeof status.wallet.availableCashUsdc === "number"
+                  ? status.wallet.availableCashUsdc
+                  : undefined
+              }
               totalTrades={status?.ok ? status.tracking.tradeCount24h : undefined}
+              profitLoss={
+                status?.ok && typeof status.wallet.pnlUsd === "number"
+                  ? status.wallet.pnlUsd
+                  : undefined
+              }
               tradersTracked={status?.ok ? status.tracking.tradersTracked : undefined}
             />
 

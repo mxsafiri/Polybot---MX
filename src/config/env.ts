@@ -327,6 +327,7 @@ export const ENV = {
     PROXY_WALLET: process.env.PROXY_WALLET as string,
     PRIVATE_KEY: process.env.PRIVATE_KEY as string,
     PREVIEW_MODE: process.env.PREVIEW_MODE === 'true',
+    COPY_ONLY_NEW_TRADES: process.env.COPY_ONLY_NEW_TRADES !== 'false',
     CLOB_HTTP_URL: process.env.CLOB_HTTP_URL as string,
     CLOB_WS_URL: process.env.CLOB_WS_URL as string,
     FETCH_INTERVAL: parseInt(process.env.FETCH_INTERVAL || '1', 10),

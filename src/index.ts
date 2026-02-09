@@ -5,6 +5,8 @@ import tradeExecutor, { stopTradeExecutor } from './services/tradeExecutor';
 import tradeMonitor, { stopTradeMonitor } from './services/tradeMonitor';
 import Logger from './utils/logger';
 import { performHealthCheck, logHealthCheck } from './utils/healthCheck';
+import fetchData from './utils/fetchData';
+import getMyBalance from './utils/getMyBalance';
 import mongoose from 'mongoose';
 
 const USER_ADDRESSES = ENV.USER_ADDRESSES;
@@ -94,15 +96,49 @@ export const main = async () => {
                     lastSeenAt: number;
                     previewMode: boolean;
                     pid: number;
+                    wallet?: {
+                        availableCashUsdc: number;
+                        positionsValueUsd: number;
+                        portfolioValueUsd: number;
+                        pnlUsd: number;
+                        updatedAt: number;
+                    };
                 }>('bot_status');
+
+                const now = Date.now();
+                const [availableCashUsdc, myPositions] = await Promise.all([
+                    getMyBalance(PROXY_WALLET),
+                    fetchData(
+                        `https://data-api.polymarket.com/positions?user=${PROXY_WALLET}`
+                    ) as Promise<unknown>,
+                ]);
+
+                const positions = Array.isArray(myPositions) ? myPositions : [];
+                const positionsValueUsd = positions.reduce((sum, p) => {
+                    const value = Number((p as Record<string, unknown>).currentValue) || 0;
+                    return sum + value;
+                }, 0);
+                const investedUsd = positions.reduce((sum, p) => {
+                    const value = Number((p as Record<string, unknown>).initialValue) || 0;
+                    return sum + value;
+                }, 0);
+                const pnlUsd = positionsValueUsd - investedUsd;
+                const portfolioValueUsd = availableCashUsdc + positionsValueUsd;
 
                 await botStatus.updateOne(
                     { _id: 'singleton' } as unknown as { _id: string },
                     {
                         $set: {
-                            lastSeenAt: Date.now(),
+                            lastSeenAt: now,
                             previewMode: ENV.PREVIEW_MODE,
                             pid: process.pid,
+                            wallet: {
+                                availableCashUsdc,
+                                positionsValueUsd,
+                                portfolioValueUsd,
+                                pnlUsd,
+                                updatedAt: now,
+                            },
                         },
                     },
                     { upsert: true }
