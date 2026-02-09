@@ -5,12 +5,14 @@ import tradeExecutor, { stopTradeExecutor } from './services/tradeExecutor';
 import tradeMonitor, { stopTradeMonitor } from './services/tradeMonitor';
 import Logger from './utils/logger';
 import { performHealthCheck, logHealthCheck } from './utils/healthCheck';
+import mongoose from 'mongoose';
 
 const USER_ADDRESSES = ENV.USER_ADDRESSES;
 const PROXY_WALLET = ENV.PROXY_WALLET;
 
 // Graceful shutdown handler
 let isShuttingDown = false;
+let heartbeatTimer: NodeJS.Timeout | undefined;
 
 const gracefulShutdown = async (signal: string) => {
     if (isShuttingDown) {
@@ -31,11 +33,14 @@ const gracefulShutdown = async (signal: string) => {
         Logger.info('Waiting for services to finish current operations...');
         await new Promise((resolve) => setTimeout(resolve, 2000));
 
-        // Close database connection
-        await closeDB();
-
-        Logger.success('Graceful shutdown completed');
-        process.exit(0);
+        // Shutdown handling
+        const shutdown = async () => {
+            Logger.info('Shutting down...');
+            clearInterval(heartbeatTimer);
+            await closeDB();
+            process.exit(0);
+        };
+        await shutdown();
     } catch (error) {
         Logger.error(`Error during shutdown: ${error}`);
         process.exit(1);
@@ -70,11 +75,35 @@ export const main = async () => {
             cyan: '\x1b[36m',
         };
         
+        console.log(`\n${colors.yellow} First time running the bot?${colors.reset}`);
         console.log(`\n${colors.yellow}💡 First time running the bot?${colors.reset}`);
         console.log(`   Read the guide: ${colors.cyan}GETTING_STARTED.md${colors.reset}`);
         console.log(`   Run health check: ${colors.cyan}npm run health-check${colors.reset}\n`);
         
         await connectDB();
+
+        // Heartbeat for dashboard monitoring
+        const heartbeatIntervalMs = 10_000;
+        const heartbeat = async () => {
+            try {
+                await mongoose.connection.collection('bot_status').updateOne(
+                    { _id: 'singleton' },
+                    {
+                        $set: {
+                            lastSeenAt: Date.now(),
+                            previewMode: ENV.PREVIEW_MODE,
+                            pid: process.pid,
+                        },
+                    },
+                    { upsert: true }
+                );
+            } catch {
+                // no-op: heartbeat must never crash the bot
+            }
+        };
+
+        await heartbeat();
+        heartbeatTimer = setInterval(heartbeat, heartbeatIntervalMs);
         Logger.startup(USER_ADDRESSES, PROXY_WALLET);
 
         // Perform initial health check

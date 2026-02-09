@@ -19,6 +19,9 @@ out/
 
 # Environment variables
 .env
+.env.template.txt
+QUICK_REFERENCE.md
+SETUP_GUIDE.md
 
 # Temporary files
 *.tmp
