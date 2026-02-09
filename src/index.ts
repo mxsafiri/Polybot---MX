@@ -86,8 +86,18 @@ export const main = async () => {
         const heartbeatIntervalMs = 10_000;
         const heartbeat = async () => {
             try {
-                await mongoose.connection.collection('bot_status').updateOne(
-                    { _id: 'singleton' },
+                const db = mongoose.connection.db;
+                if (!db) return;
+
+                const botStatus = db.collection<{
+                    _id: string;
+                    lastSeenAt: number;
+                    previewMode: boolean;
+                    pid: number;
+                }>('bot_status');
+
+                await botStatus.updateOne(
+                    { _id: 'singleton' } as unknown as { _id: string },
                     {
                         $set: {
                             lastSeenAt: Date.now(),
